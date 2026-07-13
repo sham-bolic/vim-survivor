@@ -23,8 +23,14 @@ body {
 }
 
 
+/* `inline` (not `inline-block`) so this empty span still gets a normal
+   line box from the surrounding text - an inline-block with no content
+   collapses to zero height, which made codemirror-vim's normal-mode
+   block cursor render with zero height whenever it landed on this exact
+   position (e.g. the first character of a line that also anchors a
+   hint chip). */
 .cm-hint-anchor {
-  @apply relative inline-block w-0 align-baseline;
+  @apply relative inline align-baseline;
 }
 
 .cm-hint-anchor::before {
@@ -35,7 +41,7 @@ body {
 }
 
 .cm-hint-chip {
-  @apply absolute left-1/2 -translate-x-1/2 whitespace-nowrap rounded border border-green-500/70 bg-zinc-900 px-1.5 py-0.5 text-xs text-green-400/80 pointer-events-none select-none;
+  @apply absolute left-1/2 -translate-x-1/2 whitespace-nowrap rounded border border-green-500/70 bg-zinc-900/80 px-1.5 py-0.5 text-xs text-green-400/80 opacity-90 pointer-events-none select-none;
   bottom: 1.4em;
 }
 

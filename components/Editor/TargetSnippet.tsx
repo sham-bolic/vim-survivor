@@ -4,19 +4,32 @@ import type { VimChallenge } from "@/lib/challenges";
 export function TargetSnippet({ challenge }: { challenge: VimChallenge | null }) {
   if (!challenge) return null;
 
-  const { from, hint } = diffRange(challenge.initialCode, challenge.targetCode);
+  const hunks = diffRange(challenge.initialCode, challenge.targetCode);
   const target = challenge.targetCode;
-  const prefix = target.slice(0, from);
-  const changed = hint.length > 0 ? target.slice(from, from + hint.length) : "";
-  const suffix = target.slice(from + changed.length);
+
+  const segments: { text: string; changed: boolean }[] = [];
+  let cursor = 0;
+  for (const hunk of hunks) {
+    if (hunk.hintTo <= hunk.hintFrom) continue;
+    segments.push({ text: target.slice(cursor, hunk.hintFrom), changed: false });
+    segments.push({ text: target.slice(hunk.hintFrom, hunk.hintTo), changed: true });
+    cursor = hunk.hintTo;
+  }
+  segments.push({ text: target.slice(cursor), changed: false });
 
   return (
     <div className="flex-none border-b border-zinc-800 bg-zinc-950 px-4 py-3">
       <p className="mb-1 text-xs uppercase tracking-widest text-zinc-500">Target</p>
       <pre className="whitespace-pre-wrap font-mono text-sm text-zinc-400">
-        {prefix}
-        {changed && <span className="target-diff-highlight">{changed}</span>}
-        {suffix}
+        {segments.map((segment, index) =>
+          segment.changed ? (
+            <span key={index} className="target-diff-highlight">
+              {segment.text}
+            </span>
+          ) : (
+            <span key={index}>{segment.text}</span>
+          )
+        )}
       </pre>
     </div>
   );
