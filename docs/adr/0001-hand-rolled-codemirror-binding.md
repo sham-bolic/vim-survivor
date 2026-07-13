@@ -1,0 +1,3 @@
+# Hand-rolled CodeMirror binding instead of a React wrapper library
+
+Vim Survivor is a latency-sensitive game where the player's Vim mode transitions (Normal/Insert/Visual) are the core interaction loop, and `vim()` must be registered before other keymaps to intercept keys correctly. Wrapper libraries like `@uiw/react-codemirror` reconfigure or recreate `EditorState` on certain prop changes in ways that are subtle to control precisely, which risks fighting Vim's own mode transitions. We construct the `EditorState`/`EditorView` directly with `@codemirror/state`/`@codemirror/view` inside a single `useEffect`/`useRef`-based client component, giving full control over extension ordering and lifecycle at the cost of writing the React binding ourselves.
