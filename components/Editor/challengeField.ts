@@ -21,76 +21,109 @@ export type DiffHunk = {
 };
 
 /**
- * Nudges a chip that's centered (via `left: 50%; transform: translateX(-50%)`
- * in CSS) back inside the editor's scroll viewport when its anchor sits near
- * the left or right edge - otherwise half the chip renders past the
- * scroller's clipped bounds and is simply invisible, unreachable by
- * scrolling. Deferred to the next frame since the widget's DOM isn't
- * attached (and therefore has no layout) until CodeMirror inserts it right
- * after `toDOM()` returns - `view.coordsAtPos` isn't an option here since
- * CodeMirror forbids reading layout while a `toDOM` call is still part of
- * the same update.
+ * Renders the single Hint Chip for the Active Goal - the text the player must
+ * type - in one of two placements:
  *
- * This only stays correct because `eq()` below includes `pos`: without it,
- * CodeMirror would treat two widgets at different positions (but identical
- * text) as interchangeable and reuse the earlier one's already-measured,
- * now-wrong DOM node instead of calling `toDOM` again for the new spot.
+ * - "above": the default for an in-place edit (a character swap, or a
+ *   freshly-opened but still-blank line). The chip floats directly above the
+ *   target span, in a zero-size host so it never shifts the code, with its
+ *   left edge aligned to the span - the column link is what ties it to the
+ *   character. See ADR 0002 for why above rather than trailing.
+ * - "horizontal": reserved for a whole line that does not exist yet ("press
+ *   o/O"). There's no line to float above, so the chip trails after the line
+ *   above along a horizontal dashed connector toward where the new line will
+ *   go - the vim-hero.com/lessons/open "jay ┄┄┄ [owl]" style.
  */
-function clampChipToViewport(chip: HTMLElement) {
-  requestAnimationFrame(() => {
-    const scroller = chip.closest(".cm-scroller");
-    if (!scroller) return;
-
-    const chipRect = chip.getBoundingClientRect();
-    const boundsRect = scroller.getBoundingClientRect();
-
-    const overflowLeft = boundsRect.left - chipRect.left;
-    const overflowRight = chipRect.right - boundsRect.right;
-
-    let delta = 0;
-    if (overflowLeft > 0) delta = overflowLeft + 4;
-    else if (overflowRight > 0) delta = -(overflowRight + 4);
-
-    // The chip's -50% centering comes from Tailwind's `-translate-x-1/2`,
-    // which (in Tailwind v4) compiles to the native CSS `translate`
-    // property, not `transform`. Setting `transform: translateX(-50%)`
-    // here too would stack a second, redundant -50% shift on top of that
-    // (the two properties apply independently), so only the corrective
-    // delta belongs on `transform`.
-    if (delta !== 0) {
-      chip.style.transform = `translateX(${delta}px)`;
-    }
-  });
-}
-
-class HintWidget extends WidgetType {
+class LineHintWidget extends WidgetType {
   constructor(
     readonly text: string,
-    readonly pos: number
+    readonly connector: "horizontal" | "above"
   ) {
     super();
   }
 
-  eq(other: HintWidget): boolean {
-    return other.text === this.text && other.pos === this.pos;
+  eq(other: LineHintWidget): boolean {
+    return other.text === this.text && other.connector === this.connector;
   }
 
   toDOM(): HTMLElement {
-    const anchor = document.createElement("span");
-    anchor.className = "cm-hint-anchor";
+    const wrap = document.createElement("span");
+    wrap.className = `cm-line-hint cm-line-hint-${this.connector}`;
 
-    const chip = document.createElement("span");
-    chip.className = "cm-hint-chip";
-    chip.textContent = this.text;
+    if (this.connector === "above") {
+      const floater = document.createElement("span");
+      floater.className = "cm-line-hint-floater";
+      for (const line of this.text.split("\n")) {
+        const chip = document.createElement("span");
+        chip.className = "cm-line-hint-chip";
+        chip.textContent = line;
+        floater.appendChild(chip);
+      }
+      wrap.appendChild(floater);
+      return wrap;
+    }
 
-    anchor.appendChild(chip);
-    clampChipToViewport(chip);
-    return anchor;
+    for (const line of this.text.split("\n")) {
+      const connector = document.createElement("span");
+      connector.className = "cm-line-hint-connector";
+      wrap.appendChild(connector);
+
+      const chip = document.createElement("span");
+      chip.className = "cm-line-hint-chip";
+      chip.textContent = line;
+      wrap.appendChild(chip);
+    }
+
+    return wrap;
   }
 
   ignoreEvent(): boolean {
     return true;
   }
+}
+
+/**
+ * True when a hunk is a pure insertion (nothing being overwritten) that
+ * fills out the rest of its current line - i.e. it's completing a new
+ * line (via `o`/`O`, a duplicated line, etc.) rather than inserting new
+ * characters into the middle of an existing line.
+ *
+ * Deliberately only checks the *end* of the hunk sits on a line boundary,
+ * not the start. The diff always collapses any already-correct prefix
+ * into the surrounding matched (non-hunk) text, so once the player has
+ * typed part of a new line - say the leading indent - the hunk's `from`
+ * shifts past that prefix and no longer sits right after a "\n" itself,
+ * even though the line as a whole is still a fresh one under
+ * construction. Requiring both edges to land on "\n" (as an earlier
+ * version of this check did) misclassified that in-progress state as a
+ * same-line edit, which put the hint chip back on its old
+ * absolute-positioned path and let it render on top of the line above.
+ */
+function isWholeLineInsertion(hunk: DiffHunk, doc: string): boolean {
+  if (hunk.from !== hunk.to || hunk.hint.length === 0) return false;
+
+  return hunk.to === doc.length || doc[hunk.to] === "\n" || hunk.hint.endsWith("\n");
+}
+
+/**
+ * True once the player has already carved out the line the hunk wants
+ * filled in (e.g. pressed `o`/`O`, which inserts the "\n" immediately even
+ * though no text follows it yet). At that point the "line doesn't exist,
+ * press o/O" framing no longer applies - there's a real row in the layout
+ * already, so the hunk should be treated as an ordinary in-place edit
+ * (same widget choice as any other same-line hunk) rather than the
+ * connector-and-chip treatment reserved for a genuinely uncreated line.
+ *
+ * Checks whether the doc *already* has a "\n" sitting right at the hunk's
+ * insertion point, not whether the line's text is empty - `o`/`O` writes
+ * that "\n" immediately, before the player types anything, and it stays
+ * put no matter how much correct text follows. A text-emptiness check
+ * instead would flip back to "line not yet created" the moment the player
+ * typed even one correct character, which is exactly backwards: real
+ * matched characters sitting on the line are proof the row already exists.
+ */
+function lineAlreadyOpened(hunk: DiffHunk, doc: string): boolean {
+  return doc[hunk.to] === "\n";
 }
 
 /**
@@ -235,50 +268,64 @@ export function wrongCount(current: string, target: string): number {
   );
 }
 
-function buildDecoration(
-  doc: string,
-  targetCode: string,
-  cursorPos: number
-): DecorationSet {
+function buildDecoration(doc: string, targetCode: string): DecorationSet {
   const hunks = diffRange(doc, targetCode);
   const decorations = [];
 
-  // Marking every hunk red is what actually fixes "whole line goes red" -
-  // each mistake gets its own tight span. But showing a "type this"
-  // chip for every single hunk at once got cluttered fast (two small
-  // floating boxes stacked over two adjacent characters read as noise,
-  // not help) - so only the hunk nearest the cursor, the one the player
-  // is actually looking at, gets a hint chip.
-  let nearest: DiffHunk | null = null;
-  let nearestDist = Infinity;
+  // The Active Goal is the earliest remaining difference in document order.
+  // diffRange yields hunks left-to-right, so it's simply the first one. It is
+  // the only span that gets emphasis (and, if it has text to type, the single
+  // Hint Chip); every other difference is a dimmed scope Bug Highlight. See
+  // ADR 0003.
+  const active: DiffHunk | null = hunks[0] ?? null;
 
   for (const hunk of hunks) {
     if (hunk.from < hunk.to) {
+      // A delete (nothing replaces the wrong text) reads as "remove me"; a
+      // replace (wrong text becomes the chip's text) reads as "swap me".
+      const kind = hunk.hint.length === 0 ? "cm-bug-delete" : "cm-bug-replace";
+      const emphasis = hunk === active ? " cm-bug-active" : "";
       decorations.push(
-        Decoration.mark({ class: "cm-bug-highlight" }).range(
-          hunk.from,
-          hunk.to
-        )
+        Decoration.mark({
+          class: `cm-bug-highlight ${kind}${emphasis}`,
+        }).range(hunk.from, hunk.to)
       );
-    }
-    if (hunk.hint.length === 0) continue;
-    const dist = Math.min(
-      Math.abs(hunk.from - cursorPos),
-      Math.abs(hunk.to - cursorPos)
-    );
-    if (dist < nearestDist) {
-      nearestDist = dist;
-      nearest = hunk;
     }
   }
 
-  if (nearest) {
-    decorations.push(
-      Decoration.widget({
-        widget: new HintWidget(nearest.hint, nearest.to),
-        side: 1,
-      }).range(nearest.to)
-    );
+  // Only the Active Goal carries a chip, and only when it has text to type -
+  // a pure delete shows no chip (its pulsing red is the cue).
+  if (active && active.hint.length > 0) {
+    const wholeLine = isWholeLineInsertion(active, doc);
+    // True only when the target line genuinely doesn't exist in the doc yet -
+    // the player still needs to press o/O to create it. A whole-line hunk
+    // whose line has already been opened (even if nothing's been typed into it
+    // besides auto-indent) is really just an in-place edit on an existing, if
+    // blank, row.
+    const needsNewLine = wholeLine && !lineAlreadyOpened(active, doc);
+    const text = wholeLine ? active.hint.replace(/^\n+|\n+$/g, "") : active.hint;
+
+    if (needsNewLine) {
+      // Trail the hint after the line above, since the target line itself
+      // doesn't exist yet for the chip to float over.
+      const anchorPos =
+        active.to > 0 && doc[active.to - 1] === "\n" ? active.to - 1 : active.to;
+      decorations.push(
+        Decoration.widget({
+          widget: new LineHintWidget(text, "horizontal"),
+          side: -1,
+        }).range(anchorPos)
+      );
+    } else {
+      // Float the chip above the start of the span it refers to; the red
+      // Bug Highlight underneath anchors which characters it means.
+      decorations.push(
+        Decoration.widget({
+          widget: new LineHintWidget(text, "above"),
+          side: -1,
+        }).range(active.from)
+      );
+    }
   }
 
   return Decoration.set(decorations, true);
@@ -292,19 +339,14 @@ function buildDecoration(
 export function createChallengeHighlightField(challenge: VimChallenge) {
   return StateField.define<DecorationSet>({
     create(state) {
-      return buildDecoration(
-        state.doc.toString(),
-        challenge.targetCode,
-        state.selection.main.head
-      );
+      return buildDecoration(state.doc.toString(), challenge.targetCode);
     },
     update(decorations, tr) {
-      if (!tr.docChanged && !tr.selection) return decorations;
-      return buildDecoration(
-        tr.state.doc.toString(),
-        challenge.targetCode,
-        tr.state.selection.main.head
-      );
+      // The Active Goal is chosen by document order, not cursor proximity, so
+      // decorations only need rebuilding when the document changes - cursor
+      // movement no longer affects them.
+      if (!tr.docChanged) return decorations;
+      return buildDecoration(tr.state.doc.toString(), challenge.targetCode);
     },
     provide: (field) => EditorView.decorations.from(field),
   });

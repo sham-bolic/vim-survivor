@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Arena } from "@/components/Arena";
+import { Hud } from "@/components/Hud";
 import { Editor } from "@/components/Editor/Editor";
 import type { VimChallenge } from "@/lib/challenges";
 
@@ -34,23 +35,27 @@ export function GameLayout() {
   }, []);
 
   return (
-    <div className="relative flex h-screen w-screen">
-      <div className="w-1/2 h-full">
-        <Arena
-          challenge={challenge}
-          challengeCount={challengeCount}
-          elapsedSeconds={elapsedSeconds}
-          onRestart={handleRestart}
-        />
+    <div className="relative flex min-h-screen w-screen flex-col overflow-y-auto bg-[var(--background)]">
+      <Hud
+        challengeCount={challengeCount}
+        elapsedSeconds={elapsedSeconds}
+        onRestart={handleRestart}
+      />
+      {/* Frameless visuals zone on top; the larger flex weight (vs the bottom
+          spacer) drops the editor block just below vertical center. */}
+      <div className="flex-[3] min-h-0">
+        <Arena />
       </div>
-      <div className="w-1/2 h-full">
+      {/* Centered editor column: editor -> mode chip -> target (see Editor). */}
+      <section className="mx-auto w-full max-w-2xl flex-none px-6">
         <Editor
           key={restartKey}
           active={hasStarted}
           challenge={challenge}
           onChallengeChange={handleChallengeChange}
         />
-      </div>
+      </section>
+      <div className="flex-[2]" />
 
       {!hasStarted && (
         <div className="absolute inset-0 flex items-center justify-center bg-zinc-950/70 backdrop-blur-sm">

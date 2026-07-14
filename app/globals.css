@@ -18,31 +18,83 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Scope Bug Highlight: a still, dimmed marker for a difference that is not the
+   Active Goal. Visible so the player can gauge how much remains and plan a
+   motion, but quiet enough not to compete with the Active Goal. The pulse is
+   deliberately NOT here - it's reserved for .cm-bug-active. */
 .cm-bug-highlight {
-  @apply bg-red-500/30 text-red-300 border border-red-500 animate-pulse rounded;
+  @apply rounded border border-red-500/50 bg-red-500/15 text-red-300/70;
 }
 
-
-/* `inline` (not `inline-block`) so this empty span still gets a normal
-   line box from the surrounding text - an inline-block with no content
-   collapses to zero height, which made codemirror-vim's normal-mode
-   block cursor render with zero height whenever it landed on this exact
-   position (e.g. the first character of a line that also anchors a
-   hint chip). */
-.cm-hint-anchor {
-  @apply relative inline align-baseline;
+/* Delete: nothing should remain here. Dashed edge + strikethrough is the
+   universal "remove me" affordance. */
+.cm-bug-delete {
+  @apply border-dashed line-through decoration-red-400;
 }
 
-.cm-hint-anchor::before {
-  content: "";
-  @apply absolute left-1/2 -translate-x-1/2 border-l border-dashed border-green-500/70;
-  bottom: 0;
-  height: 1.4em;
+/* Replace: wrong text that will be swapped for the Hint Chip's text. */
+.cm-bug-replace {
+  @apply border-solid;
 }
 
-.cm-hint-chip {
-  @apply absolute left-1/2 -translate-x-1/2 whitespace-nowrap rounded border border-green-500/70 bg-zinc-900/80 px-1.5 py-0.5 text-xs text-green-400/80 opacity-90 pointer-events-none select-none;
-  bottom: 1.4em;
+/* Active Goal: the one difference to fix next. Full strength, and the pulse -
+   reserved for it alone - marks it as "now". Defined last so it wins the
+   conflicting color/background utilities against the dimmed base; it sets no
+   border-style, so .cm-bug-delete's dashed edge survives on an active delete. */
+.cm-bug-active {
+  @apply border-red-500 bg-red-500/30 text-red-300 animate-pulse;
+}
+
+/* One Hint Chip is shown at a time, for the Active Goal (see ADR 0002). */
+.cm-line-hint {
+  @apply pointer-events-none select-none;
+}
+
+/* In-place edit: the chip floats directly above the target span. The host
+   takes no space in the text flow (0x0) so the code never shifts; the floater
+   is absolutely positioned above and left-aligned to the anchor, rising into
+   the per-line headroom reserved in useVimEditor's hintHeadroomTheme. */
+.cm-line-hint-above {
+  @apply relative inline-block;
+  width: 0;
+  height: 1em;
+  vertical-align: text-top;
+}
+
+.cm-line-hint-floater {
+  @apply absolute left-0 flex flex-col items-start gap-0.5;
+  /* The host is aligned to the text top (vertical-align: text-top) and given a
+     real 1em height, so `bottom: 100%` places the chip directly above the text
+     - into the per-line padding band from hintHeadroomTheme - with no baseline
+     or font-metric guesswork. The margin is the gap between chip and glyphs. */
+  bottom: 100%;
+  margin-bottom: 0.3rem;
+  /* The anchor host is 0-width, so an absolutely-positioned floater with only
+     `left` set has ~0 available width and its shrink-to-fit collapses - wrapping
+     the chip one character per line. Size it to its content instead; the chip's
+     own max-width still caps and wraps genuinely long hints. */
+  width: max-content;
+}
+
+/* Whole missing line: no line to float above, so the chip trails the line
+   above along a horizontal dashed connector toward where the new line goes. */
+.cm-line-hint-horizontal {
+  @apply inline-flex items-center gap-1.5 align-baseline;
+  margin-left: 0.6em;
+}
+
+.cm-line-hint-connector {
+  @apply inline-block border-t border-dashed border-green-500/70;
+  width: 1.6em;
+}
+
+/* `pre-wrap` (not `pre`) plus a capped width so a long hint (e.g. a long
+   string literal) wraps onto further rows inside the chip instead of
+   pushing its right edge past the scroller, where it'd be clipped with no
+   visible way to scroll to it. */
+.cm-line-hint-chip {
+  @apply inline-block whitespace-pre-wrap break-words rounded border border-green-500/70 bg-zinc-900/80 px-1.5 py-0.5 font-mono text-xs text-green-400/80 opacity-90;
+  max-width: 24rem;
 }
 
 .target-diff-highlight {

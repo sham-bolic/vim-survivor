@@ -18,9 +18,9 @@ export function TargetSnippet({ challenge }: { challenge: VimChallenge | null })
   segments.push({ text: target.slice(cursor), changed: false });
 
   return (
-    <div className="flex-none border-b border-zinc-800 bg-zinc-950 px-4 py-3">
-      <p className="mb-1 text-xs uppercase tracking-widest text-zinc-500">Target</p>
-      <pre className="whitespace-pre-wrap font-mono text-sm text-zinc-400">
+    <div>
+      <p className="mb-2 text-xs uppercase tracking-widest text-zinc-500">Target</p>
+      <pre className="whitespace-pre-wrap font-mono text-base leading-relaxed text-zinc-400">
         {segments.map((segment, index) =>
           segment.changed ? (
             <span key={index} className="target-diff-highlight">
