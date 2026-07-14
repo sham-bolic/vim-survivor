@@ -80,8 +80,22 @@ const embeddedTheme = EditorView.theme({
 // which is exactly the moment the player most needs to see where they are.
 // White has no other use in this palette (mistakes are red, hints are
 // green), so it reads clearly against either.
+//
+// The vim package ships that rule at `Prec.highest`, and CodeMirror mounts
+// higher-precedence style modules LAST in the sheet, so an equal-specificity
+// override loses the cascade. Prefixing with `&.cm-editor` raises our
+// specificity enough to win. The block draws the covered glyph on top of its
+// fill, so a white block needs a dark glyph color (reverse-video, like a
+// terminal cursor) or the near-white content text under it vanishes.
 const cursorContrastTheme = EditorView.theme({
-  ".cm-fat-cursor": { backgroundColor: "#fff", outlineColor: "#fff" },
+  "&.cm-editor .cm-fat-cursor": { background: "#fff", color: "#0a0a0a" },
+  "&.cm-editor:not(.cm-focused) .cm-fat-cursor": {
+    background: "none",
+    outline: "solid 1px #fff",
+  },
+  // Insert-mode caret is drawSelection's thin bar (`.cm-cursor`); its border
+  // defaults to black, invisible on this dark editor.
+  ".cm-cursor, .cm-cursor-primary": { borderLeftColor: "#fff" },
 });
 
 function toVimMode(mode: string, subMode: string): VimMode {
