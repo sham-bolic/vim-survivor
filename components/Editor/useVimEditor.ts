@@ -114,7 +114,8 @@ export function useVimEditor(
   onModeChange: (mode: VimMode) => void,
   onChallengeChange: (challenge: VimChallenge, isInitial: boolean) => void,
   onUndoPromptChange: (show: boolean) => void,
-  onKeystrokeComparison?: (comparison: KeystrokeComparison) => void
+  onKeystrokeComparison?: (comparison: KeystrokeComparison) => void,
+  onAwaitingEscapeChange?: (awaiting: boolean) => void
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -130,6 +131,14 @@ export function useVimEditor(
     // rather than installing a fresh listener per challenge.
     const keyBuffer = installKeyBuffer(container);
 
+    // The live Vim mode, tracked here (not just forwarded to React) because the
+    // NORMAL-mode completion gate needs it synchronously. `currentCheckCompletion`
+    // always points at the active challenge's completion check so the single
+    // mode-change handler can invoke it after the state swaps (it takes the view
+    // as an argument, so it doesn't need to close over one that outlives it).
+    let currentMode: VimMode = "NORMAL";
+    let currentCheckCompletion: ((view: EditorView) => void) | null = null;
+
     // Each challenge gets its own freshly built EditorState (via
     // view.setState below), so undo history never crosses a challenge
     // boundary - `u` can only undo edits made within the current challenge.
@@ -143,7 +152,56 @@ export function useVimEditor(
       // wrong character made the first mistake's prompt vanish even though
       // nothing had actually been fixed.
       let baseline = wrongCount(challenge.initialCode, challenge.targetCode);
+      // Guards against double-firing the completion sequence. Set the instant
+      // a solve is detected and never cleared for this state: the deferred
+      // setState swaps in a fresh state (with its own `solved = false`), so a
+      // mode change landing in the gap between detection and that swap must not
+      // re-run the sequence.
+      let solved = false;
       keyBuffer.reset();
+
+      // Completion is gated on NORMAL mode and re-checked on mode change:
+      // leaving insert mode is not a doc change, so pressing <Esc> after typing
+      // the answer would otherwise never be noticed. Extracted into a named
+      // function so both the doc-change listener and the vim-mode-change
+      // handler can call it; it reads the live doc off the passed view and the
+      // live mode off `currentMode`.
+      function checkCompletion(view: EditorView) {
+        if (solved) return;
+
+        const matches =
+          view.state.doc.toString().trim() === challenge.targetCode.trim();
+        // "Awaiting escape": the answer matches but the player is still in a
+        // non-NORMAL mode - the window where the Monster keeps advancing and
+        // the Esc nudge shows.
+        onAwaitingEscapeChange?.(matches && currentMode !== "NORMAL");
+        if (!matches || currentMode !== "NORMAL") return;
+
+        solved = true;
+        console.log("Task Completed");
+
+        const actualKeys = keyBuffer.keys();
+        onKeystrokeComparison?.({
+          challenge,
+          actualKeys,
+          optimalKeys: challenge.optimalKeys,
+          beatOptimal: actualKeys.length < challenge.optimalKeys.length,
+        });
+
+        const next = bag.next();
+        onChallengeChange(next, false);
+        onUndoPromptChange(false);
+        onAwaitingEscapeChange?.(false);
+
+        // Defer the state swap: calling setState synchronously here
+        // reenters while @replit/codemirror-vim's own key-command
+        // handler is still on the call stack (this fires mid-dispatch),
+        // which corrupts its internal state - observed as a stray
+        // leftover keystroke leaking into the next challenge's buffer.
+        // Running it after the current task finishes avoids that.
+        setTimeout(() => view.setState(buildState(next)), 0);
+      }
+      currentCheckCompletion = checkCompletion;
 
       return EditorState.create({
         doc: challenge.initialCode,
@@ -171,31 +229,7 @@ export function useVimEditor(
               onUndoPromptChange(false);
             }
 
-            const text = update.state.doc.toString().trim();
-            if (text !== challenge.targetCode.trim()) return;
-
-            console.log("Task Completed");
-
-            const actualKeys = keyBuffer.keys();
-            onKeystrokeComparison?.({
-              challenge,
-              actualKeys,
-              optimalKeys: challenge.optimalKeys,
-              beatOptimal: actualKeys.length < challenge.optimalKeys.length,
-            });
-
-            const next = bag.next();
-            onChallengeChange(next, false);
-            onUndoPromptChange(false);
-
-            // Defer the state swap: calling setState synchronously here
-            // reenters while @replit/codemirror-vim's own key-command
-            // handler is still on the call stack (this listener fires
-            // mid-dispatch), which corrupts its internal state - observed
-            // as a stray leftover keystroke leaking into the next
-            // challenge's buffer. Running it after the current task
-            // finishes avoids that.
-            setTimeout(() => update.view.setState(buildState(next)), 0);
+            checkCompletion(update.view);
           }),
         ],
       });
@@ -212,7 +246,11 @@ export function useVimEditor(
 
     const cm = getCM(view);
     const handleModeChange = (event: { mode: string; subMode?: string }) => {
-      onModeChange(toVimMode(event.mode, event.subMode ?? ""));
+      currentMode = toVimMode(event.mode, event.subMode ?? "");
+      onModeChange(currentMode);
+      // Re-check completion: a correct doc only counts once the player is back
+      // in NORMAL, and reaching NORMAL is a mode change, not a doc edit.
+      currentCheckCompletion?.(view);
     };
     cm?.on("vim-mode-change", handleModeChange);
 
@@ -225,6 +263,7 @@ export function useVimEditor(
       removeClickGuard();
       keyBuffer.dispose();
       onUndoPromptChange(false);
+      onAwaitingEscapeChange?.(false);
       view.destroy();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

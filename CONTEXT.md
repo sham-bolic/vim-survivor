@@ -5,9 +5,41 @@ A high-intensity, web-based survival game where the player fights off monsters b
 ## Language
 
 **Arena**:
-The left-hand visual panel where monsters appear and are fought. Canonically "Monster Assault Arena," shortened to "Arena" in code and docs.
+The visual zone (currently the top band above the Editor Panel) where the Monster advances and is fought. Canonically "Monster Assault Arena," shortened to "Arena" in code and docs.
 _Avoid_: Battlefield, game panel, left panel, monster panel
-_Note_: During Phase 2, before monster combat exists, this panel temporarily displays challenge info (progress counter, timer) instead of monster gameplay.
+_Note_: In Phase 3 it renders the raw survival numbers (Player Health, Monster Distance, Wave, Score) as text, ahead of real monster visuals.
+
+**Monster**:
+The single advancing threat the player fights off. It has no health of its own - completing a Challenge fully Repels it (one-shot); it is never "killed." Conceptually one monster that accelerates over time rather than a succession of distinct enemies.
+_Avoid_: Enemy, mob, creature
+
+**Monster Distance**:
+How close the Monster is to the player, as a percentage from 100 (far) down to 0 (contact), stored as `monsterDistance`. Decreases continuously while PLAYING at a wave-dependent speed; a Repel snaps it back to 100.
+_Avoid_: Proximity, position, gap
+
+**Repel**:
+What a completed Challenge does to the Monster: instantly resets Monster Distance to 100. The player's reward for solving a drill. Not a "kill" (the Monster has no health).
+_Avoid_: Kill, defeat, hit, damage
+
+**Collision**:
+The event when Monster Distance reaches 0. Costs the player 20 Player Health; if Health remains it resets Monster Distance to 100 (the current Challenge and the player's in-progress edits are untouched); if Health is depleted the Game State becomes GAME_OVER.
+_Avoid_: Hit, attack, contact
+
+**Player Health**:
+The player's life total, `playerHealth`, starting at 100 and lost in 20-point steps per Collision - five Collisions end the run.
+_Avoid_: HP, lives, life
+
+**Wave**:
+The escalating difficulty level, `wave`, starting at 1 and incrementing every 30 seconds of PLAYING time. It sets the Monster's speed and never caps - the game is endless, ended only by a depleted Player Health, not by a final Wave.
+_Avoid_: Level, stage, round, difficulty
+
+**Score**:
+The count of Challenges the player has solved this run, `score`. The single progress number shown to the player. Collisions never advance it.
+_Avoid_: Points, kills, challenge count
+
+**Game State**:
+The run's phase: `IDLE` (before the player starts), `PLAYING` (the loop and timer run, the Monster advances), or `GAME_OVER` (Player Health depleted; loop frozen, editor disabled).
+_Avoid_: Status, phase, mode (reserve "mode" for Vim Mode)
 
 **Challenge**:
 A single Vim drill: the player is shown buggy `initialCode` in the Editor Panel with a Bug Highlight marking what to fix, and must use Vim motions to transform it into an exact match of `targetCode`. Modeled on VimHero's challenge format. Defined by the `VimChallenge` interface.

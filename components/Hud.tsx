@@ -8,19 +8,21 @@ function formatElapsed(totalSeconds: number): string {
 
 // Subtle, frameless status row pinned at the top of the centered layout: the
 // challenge counter, elapsed timer, and Restart. Kept muted so it stays out of
-// the way of the editor and the (future) Arena visuals below it.
+// the way of the editor and the Arena visuals below it. The counter is derived
+// from Score (the single progress number): the player is working on challenge
+// `score + 1`, so #1 at the start, #2 after the first solve, and so on.
 export function Hud({
-  challengeCount,
+  score,
   elapsedSeconds,
   onRestart,
 }: {
-  challengeCount: number;
+  score: number;
   elapsedSeconds: number;
   onRestart: () => void;
 }) {
   return (
     <div className="flex-none flex items-center justify-center gap-6 px-6 py-3 font-mono text-xs uppercase tracking-widest text-zinc-500">
-      <span>Challenge #{challengeCount}</span>
+      <span>Challenge #{score + 1}</span>
       <span>{formatElapsed(elapsedSeconds)}</span>
       <button
         onClick={onRestart}
